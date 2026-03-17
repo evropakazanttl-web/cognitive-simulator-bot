@@ -10,9 +10,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 import logging
-from ai_client import AIClient  # наш модуль для ИИ
-
-logging.basicConfig(level=logging.INFO)
 
 # Импортируем клинические случаи
 from cases import case_1, case_2, case_3, case_4
@@ -36,9 +33,14 @@ print("OPENROUTER_API_KEY =", os.getenv("OPENROUTER_API_KEY"))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# Инициализация ИИ-клиента
+# Импортируем и инициализируем ИИ-клиент (после загрузки переменных)
+from ai_client import AIClient
 ai_client = AIClient()
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+
+# Создаём бота и диспетчер
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
@@ -198,6 +200,8 @@ async def handle_answer(message: types.Message, state: FSMContext):
 # Обработчик кнопки "Спросить ИИ-ассистента"
 @dp.message(lambda message: message.text == "Спросить ИИ-ассистента")
 async def start_ai_chat(message: types.Message, state: FSMContext):
+    print("🔍 start_ai_chat: проверяем доступность ИИ")
+    print("   ai_client.is_available() =", ai_client.is_available())
     if not ai_client.is_available():
         await message.answer("Извините, ИИ-ассистент временно недоступен (нет API ключа).")
         return
