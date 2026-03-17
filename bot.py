@@ -26,8 +26,15 @@ print("Проверка типов случаев:")
 for i, case in enumerate(all_cases):
     print(f"  case_{i+1}: {type(case)}")
 
+# Загружаем переменные окружения из .env
 load_dotenv()
+
+# Отладочный вывод: что загрузилось
+print("BOT_TOKEN =", os.getenv("BOT_TOKEN"))
+print("OPENROUTER_API_KEY =", os.getenv("OPENROUTER_API_KEY"))
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Инициализация ИИ-клиента
 ai_client = AIClient()
