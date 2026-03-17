@@ -1,44 +1,33 @@
-# ai_client.py - Клиент для работы с OpenRouter API (с поддержкой Gemini как резерв)
+# ai_client.py - Клиент для работы с OpenRouter API (исправленная версия)
 import os
 import aiohttp
 import json
 
 class AIClient:
     def __init__(self):
-        self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        self.gemini_key = os.getenv("GEMINI_API_KEY")
-        if self.openrouter_key:
+        self.api_key = os.getenv("OPENROUTER_API_KEY")
+        if self.api_key:
             print("✅ ИИ-клиент инициализирован (OpenRouter)")
-        elif self.gemini_key:
-            print("✅ ИИ-клиент инициализирован (Google Gemini)")
+            print(f"   Ключ (первые 10 символов): {self.api_key[:10]}...")
         else:
-            print("⚠️ ВНИМАНИЕ: ни один API ключ не найден в .env")
+            print("⚠️ ВНИМАНИЕ: OPENROUTER_API_KEY не найден в .env")
     
     def is_available(self):
-        """Проверяет, доступен ли ИИ-клиент (есть хотя бы один ключ)"""
-        return bool(self.openrouter_key or self.gemini_key)
+        """Проверяет, доступен ли ИИ-клиент"""
+        available = bool(self.api_key)
+        print(f"🔍 is_available() вызван, результат: {available}")
+        return available
     
     async def get_response(self, user_message, system_prompt=None):
-        """Получить ответ от нейросети. Сначала пробует OpenRouter, при ошибке - Gemini."""
+        print(f"📤 get_response() вызван с сообщением: {user_message[:50]}...")
+        if not self.api_key:
+            print("❌ Ошибка: api_key отсутствует")
+            return "❌ API ключ не настроен. Добавьте OPENROUTER_API_KEY в .env"
         
-        if self.openrouter_key:
-            response = await self._query_openrouter(user_message, system_prompt)
-            if response and not response.startswith("⚠️ Ошибка"):
-                return response
-            # Если OpenRouter вернул ошибку, пробуем Gemini
-            print("OpenRouter недоступен, пробуем Gemini...")
-        
-        if self.gemini_key:
-            return await self._query_gemini(user_message, system_prompt)
-        
-        return "❌ Нейросеть временно недоступна. Проверьте API ключи в .env"
-    
-    async def _query_openrouter(self, user_message, system_prompt):
-        """Запрос к OpenRouter API с актуальной бесплатной моделью"""
         url = "https://openrouter.ai/api/v1/chat/completions"
         
-        # Используем актуальную бесплатную модель (март 2026)
-        model = "google/gemma-2-9b-it:free"  # или "meta-llama/llama-3-8b-instruct:free"
+        # Используем актуальную бесплатную модель
+        model = "google/gemma-2-9b-it:free"
         
         messages = []
         if system_prompt:
@@ -46,7 +35,7 @@ class AIClient:
         messages.append({"role": "user", "content": user_message})
         
         headers = {
-            "Authorization": f"Bearer {self.openrouter_key}",
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
         
@@ -57,46 +46,29 @@ class AIClient:
             "max_tokens": 500
         }
         
+        print(f"📡 Отправка запроса к OpenRouter с моделью: {model}")
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, headers=headers, json=payload) as resp:
+                    print(f"📥 Статус ответа: {resp.status}")
                     if resp.status == 200:
                         data = await resp.json()
-                        return data["choices"][0]["message"]["content"]
+                        reply = data["choices"][0]["message"]["content"]
+                        print(f"✅ Ответ получен, длина: {len(reply)} символов")
+                        return reply
                     else:
                         error_text = await resp.text()
-                        print(f"Ошибка OpenRouter: {resp.status} - {error_text}")
-                        return f"⚠️ Ошибка OpenRouter: {resp.status}. Проверьте ключ или попробуйте позже."
+                        print(f"❌ Ошибка API: {resp.status} - {error_text}")
+                        try:
+                            error_json = json.loads(error_text)
+                            if "error" in error_json:
+                                error_msg = error_json["error"].get("message", "")
+                                if "model not found" in error_msg.lower():
+                                    return f"⚠️ Модель '{model}' не найдена. Попробуйте другую модель в коде."
+                                return f"⚠️ Ошибка OpenRouter: {error_msg}"
+                        except:
+                            pass
+                        return f"⚠️ Ошибка API: {resp.status}. Проверьте ключ или попробуйте позже."
         except Exception as e:
-            print(f"Ошибка соединения с OpenRouter: {e}")
-            return f"⚠️ Ошибка соединения: {str(e)}"
-    
-    async def _query_gemini(self, user_message, system_prompt):
-        """Запрос к Google Gemini API (бесплатный, 60 запросов/мин)"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.gemini_key}"
-        
-        # Формируем промпт с системным сообщением
-        full_prompt = f"{system_prompt}\n\nВопрос: {user_message}" if system_prompt else user_message
-        
-        payload = {
-            "contents": [{
-                "parts": [{"text": full_prompt}]
-            }]
-        }
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if "candidates" in data:
-                            return data["candidates"][0]["content"]["parts"][0]["text"]
-                        else:
-                            return "⚠️ Неожиданный ответ от Gemini"
-                    else:
-                        error_text = await resp.text()
-                        print(f"Ошибка Gemini: {resp.status} - {error_text}")
-                        return f"⚠️ Ошибка Gemini: {resp.status}. Проверьте ключ."
-        except Exception as e:
-            print(f"Ошибка соединения с Gemini: {e}")
+            print(f"❌ Ошибка соединения: {e}")
             return f"⚠️ Ошибка соединения: {str(e)}"
