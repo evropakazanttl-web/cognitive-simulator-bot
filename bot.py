@@ -5,7 +5,7 @@ import traceback
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -33,7 +33,7 @@ print("OPENROUTER_API_KEY =", os.getenv("OPENROUTER_API_KEY"))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# Импортируем и инициализируем ИИ-клиент (после загрузки переменных)
+# Импортируем и инициализируем ИИ-клиент
 from ai_client import AIClient
 ai_client = AIClient()
 
@@ -52,158 +52,155 @@ class Simulator(StatesGroup):
     showing_result = State()
     ai_chat = State()
 
-# Команда /start
+# ---------- Функции для создания клавиатур ----------
+def main_menu_keyboard():
+    """Главное меню с inline-кнопками"""
+    buttons = [
+        [InlineKeyboardButton(text="🎲 Начать симуляцию", callback_data="start_sim")],
+        [InlineKeyboardButton(text="🤖 Спросить ИИ-ассистента", callback_data="start_ai")],
+        [InlineKeyboardButton(text="ℹ️ О проекте", callback_data="about")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def cases_keyboard():
+    """Клавиатура со списком клинических случаев"""
+    buttons = []
+    for case in all_cases:
+        buttons.append([InlineKeyboardButton(
+            text=f"🧠 Случай {case['id']}: {case['title']}",
+            callback_data=f"case_{case['id']}"
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def question_keyboard(options):
+    """Клавиатура с вариантами ответов на вопрос"""
+    buttons = []
+    for opt in options:
+        buttons.append([InlineKeyboardButton(text=opt, callback_data=f"answer_{opt}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def ai_chat_keyboard():
+    """Клавиатура в режиме ИИ-ассистента (кнопка выхода)"""
+    buttons = [[InlineKeyboardButton(text="🚪 Выйти из режима ИИ", callback_data="exit_ai")]]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# ---------- Команда /start ----------
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
-    kb = [
-        [KeyboardButton(text="Начать симуляцию")],
-        [KeyboardButton(text="Спросить ИИ-ассистента")],
-        [KeyboardButton(text="О проекте")]
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     await message.answer(
-        "👋 Добро пожаловать в симулятор принятия клинических решений!\n"
+        "👋 <b>Добро пожаловать в симулятор принятия клинических решений!</b>\n\n"
         "Выберите действие:",
-        reply_markup=keyboard
+        reply_markup=main_menu_keyboard(),
+        parse_mode="HTML"
     )
 
-# О проекте
-@dp.message(lambda message: message.text == "О проекте")
-async def about(message: types.Message):
-    await message.answer(
+# ---------- Обработчики callback'ов ----------
+@dp.callback_query(lambda c: c.data == "about")
+async def callback_about(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_text(
+        "ℹ️ <b>О проекте</b>\n\n"
         "Это дипломный проект — симулятор для врачей, работающих с пациентами с когнитивными расстройствами.\n"
-        "Автор: [Линенко Андрей Валерьевич]\n"
-        "Версия прототипа: 0.5 (с ИИ-ассистентом)"
+        "Автор: Линенко Андрей Валерьевич\n"
+        "Версия: 1.0 (с ИИ-ассистентом)",
+        reply_markup=main_menu_keyboard(),
+        parse_mode="HTML"
     )
 
-# Начать симуляцию – показываем список случаев
-@dp.message(lambda message: message.text == "Начать симуляцию")
-async def start_sim(message: types.Message, state: FSMContext):
-    start_time = time.time()
-    print("🟢 Нажата кнопка 'Начать симуляцию'")
-    print(f"Количество случаев: {len(all_cases)}")
-    for case in all_cases:
-        print(f"  - {case['id']}: {case['title']}")
+@dp.callback_query(lambda c: c.data == "start_sim")
+async def callback_start_sim(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.edit_text(
+        "📋 <b>Выберите клинический случай:</b>",
+        reply_markup=cases_keyboard(),
+        parse_mode="HTML"
+    )
+    await state.set_state(Simulator.choosing_case)
 
-    try:
-        buttons = [[KeyboardButton(text=f"Случай {case['id']}: {case['title']}")] for case in all_cases]
-        keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-        await state.set_state(Simulator.choosing_case)
-        await message.answer("Выберите клинический случай:", reply_markup=keyboard)
-
-    except Exception as e:
-        print(f"❌ ОШИБКА в start_sim: {e}")
-        traceback.print_exc()
-        await message.answer("Произошла внутренняя ошибка. Попробуйте позже.")
-
-    end_time = time.time()
-    print(f"⏱ Время выполнения start_sim: {end_time - start_time:.3f} сек.")
-
-# Выбор конкретного случая
-@dp.message(Simulator.choosing_case)
-async def case_chosen(message: types.Message, state: FSMContext):
-    start_time = time.time()
-    print(f"🔵 Выбран случай: {message.text}")
-
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-
-    try:
-        case_id = int(message.text.split(":")[0].split()[1])
-    except (IndexError, ValueError):
-        await message.answer("Не удалось распознать номер случая. Пожалуйста, выберите из списка.")
-        return
-
+@dp.callback_query(Simulator.choosing_case, lambda c: c.data.startswith("case_"))
+async def callback_case_chosen(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    case_id = int(callback.data.split("_")[1])
     selected_case = cases_by_id.get(case_id)
     if not selected_case:
-        await message.answer("Случай с таким номером не найден.")
+        await callback.message.edit_text("❌ Случай не найден.")
         return
-
-    print(f"Выбран случай: {selected_case['id']} - {selected_case['title']}")
 
     await state.update_data(case=selected_case, question_index=0, score=0)
     await state.set_state(Simulator.in_question)
-    await send_question(message, state)
+    await send_question(callback.message, state)
 
-    end_time = time.time()
-    print(f"⏱ Время выполнения case_chosen: {end_time - start_time:.3f} сек.")
-
-# Отправка вопроса
-async def send_question(message: types.Message, state: FSMContext):
-    start_time = time.time()
+@dp.callback_query(Simulator.in_question, lambda c: c.data.startswith("answer_"))
+async def callback_answer(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    answer_text = callback.data[7:]  # удаляем "answer_"
     data = await state.get_data()
     case = data['case']
     idx = data['question_index']
     question = case['questions'][idx]
 
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-
-    buttons = [[KeyboardButton(text=opt)] for opt in question['options']]
-    keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-
-    await message.answer(
-        f"**{case['title']}**\n\n{case['description']}\n\n**Вопрос {idx+1}:** {question['text']}",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    end_time = time.time()
-    print(f"⏱ Время отправки вопроса {idx+1}: {end_time - start_time:.3f} сек.")
-
-# Обработка ответов на вопросы
-@dp.message(Simulator.in_question)
-async def handle_answer(message: types.Message, state: FSMContext):
-    start_time = time.time()
-    data = await state.get_data()
-    case = data['case']
-    idx = data['question_index']
-    question = case['questions'][idx]
-
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-
-    if message.text not in question['options']:
-        await message.answer("Пожалуйста, выберите вариант из предложенных.")
+    if answer_text not in question['options']:
+        await callback.message.answer("❌ Пожалуйста, выберите вариант из предложенных.")
         return
 
-    selected_idx = question['options'].index(message.text)
+    selected_idx = question['options'].index(answer_text)
     is_correct = (selected_idx == question['correct'])
 
+    # Формируем сообщение с обратной связью
     if is_correct:
         await state.update_data(score=data['score'] + 1)
-        await message.answer(f"✅ Правильно!\n\n{question['explanation']}")
+        feedback = f"✅ <b>Правильно!</b>\n\n{question['explanation']}"
     else:
         correct_answer = question['options'][question['correct']]
-        await message.answer(f"❌ Неправильно.\nПравильный ответ: {correct_answer}\n\n{question['explanation']}")
+        feedback = f"❌ <b>Неправильно.</b>\n\nПравильный ответ: <b>{correct_answer}</b>\n\n{question['explanation']}"
 
+    await callback.message.edit_text(feedback, parse_mode="HTML")
+
+    # Переходим к следующему вопросу или завершаем
     if idx + 1 < len(case['questions']):
         await state.update_data(question_index=idx + 1)
-        await send_question(message, state)
+        await send_question(callback.message, state)
     else:
         score = data['score'] + (1 if is_correct else 0)
         total = len(case['questions'])
-        await message.answer(
-            f"**Симуляция завершена!**\n\nПравильных ответов: {score} из {total}\n\n"
-            f"**Рекомендации:** {case['final_note']}",
-            parse_mode="Markdown"
+        await callback.message.answer(
+            f"🏁 <b>Симуляция завершена!</b>\n\n"
+            f"Правильных ответов: {score} из {total}\n\n"
+            f"<b>Рекомендации:</b> {case['final_note']}",
+            parse_mode="HTML"
         )
         await state.clear()
-        kb = [
-            [KeyboardButton(text="Начать симуляцию")],
-            [KeyboardButton(text="Спросить ИИ-ассистента")],
-            [KeyboardButton(text="О проекте")]
-        ]
-        keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-        await message.answer("Выберите действие:", reply_markup=keyboard)
+        await callback.message.answer(
+            "👋 Выберите действие:",
+            reply_markup=main_menu_keyboard(),
+            parse_mode="HTML"
+        )
 
-    end_time = time.time()
-    print(f"⏱ Время обработки ответа на вопрос {idx+1}: {end_time - start_time:.3f} сек.")
+# ---------- Вспомогательная функция отправки вопроса ----------
+async def send_question(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    case = data['case']
+    idx = data['question_index']
+    question = case['questions'][idx]
 
-# Обработчик кнопки "Спросить ИИ-ассистента"
-@dp.message(lambda message: message.text == "Спросить ИИ-ассистента")
-async def start_ai_chat(message: types.Message, state: FSMContext):
-    print("🔍 start_ai_chat: проверяем доступность ИИ")
-    print("   ai_client.is_available() =", ai_client.is_available())
+    await message.edit_text(
+        f"🧠 <b>{case['title']}</b>\n\n"
+        f"📋 <i>{case['description']}</i>\n\n"
+        f"❓ <b>Вопрос {idx+1}:</b> {question['text']}",
+        reply_markup=question_keyboard(question['options']),
+        parse_mode="HTML"
+    )
+
+# ---------- Обработчики для ИИ-ассистента ----------
+@dp.callback_query(lambda c: c.data == "start_ai")
+async def callback_start_ai(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     if not ai_client.is_available():
-        await message.answer("Извините, ИИ-ассистент временно недоступен (нет API ключа).")
+        await callback.message.edit_text(
+            "❌ Извините, ИИ-ассистент временно недоступен (нет API ключа).",
+            reply_markup=main_menu_keyboard()
+        )
         return
 
     await state.set_state(Simulator.ai_chat)
@@ -212,30 +209,45 @@ async def start_ai_chat(message: types.Message, state: FSMContext):
     клинических рекомендациях. Если вопрос не по медицине, вежливо возвращай к теме."""
     
     await state.update_data(system_prompt=system_prompt)
-    await message.answer(
-        "🧑‍⚕️ **Режим ИИ-ассистента**\n\n"
+    await callback.message.edit_text(
+        "🧑‍⚕️ <b>Режим ИИ-ассистента</b>\n\n"
         "Задайте любой вопрос по диагностике когнитивных нарушений, лечению деменций "
-        "или интерпретации симптомов. Для выхода отправьте /end",
-        parse_mode="Markdown"
+        "или интерпретации симптомов. Для выхода нажмите кнопку ниже или отправьте /end",
+        reply_markup=ai_chat_keyboard(),
+        parse_mode="HTML"
     )
 
-# Обработчик сообщений в режиме ИИ
+@dp.callback_query(lambda c: c.data == "exit_ai")
+async def callback_exit_ai(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await callback.message.edit_text(
+        "👋 Выберите действие:",
+        reply_markup=main_menu_keyboard(),
+        parse_mode="HTML"
+    )
+
 @dp.message(Simulator.ai_chat)
 async def handle_ai_chat(message: types.Message, state: FSMContext):
     if message.text == "/end":
         await state.clear()
-        await cmd_start(message, state)
+        await message.answer(
+            "👋 Выберите действие:",
+            reply_markup=main_menu_keyboard(),
+            parse_mode="HTML"
+        )
         return
 
+    # Отправляем статус "печатает..."
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
     data = await state.get_data()
     system_prompt = data.get('system_prompt')
 
     response = await ai_client.get_response(message.text, system_prompt)
-    await message.answer(response)
+    await message.answer(response, parse_mode="HTML")
 
-# Запуск бота
+# ---------- Запуск бота ----------
 async def main():
     print("Бот запущен и готов к работе!")
     await dp.start_polling(bot)
