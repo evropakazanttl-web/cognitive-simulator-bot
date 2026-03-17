@@ -27,7 +27,7 @@ class AIClient:
         url = "https://openrouter.ai/api/v1/chat/completions"
         
         # Используем актуальную бесплатную модель
-        model = "meta-llama/llama-3-8b-instruct:free"
+        model = "meta-llama/llama-3.3-70b-instruct:free"
         
         messages = []
         if system_prompt:
