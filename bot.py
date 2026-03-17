@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 import logging
+from ai_client import AIClient  # наш модуль для ИИ
 
 logging.basicConfig(level=logging.INFO)
 
@@ -28,6 +29,9 @@ for i, case in enumerate(all_cases):
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# Инициализация ИИ-клиента
+ai_client = AIClient()
+
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
@@ -37,6 +41,7 @@ class Simulator(StatesGroup):
     choosing_case = State()
     in_question = State()
     showing_result = State()
+    ai_chat = State()
 
 # Команда /start
 @dp.message(Command("start"))
@@ -44,6 +49,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     kb = [
         [KeyboardButton(text="Начать симуляцию")],
+        [KeyboardButton(text="Спросить ИИ-ассистента")],
         [KeyboardButton(text="О проекте")]
     ]
     keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
@@ -59,7 +65,7 @@ async def about(message: types.Message):
     await message.answer(
         "Это дипломный проект — симулятор для врачей, работающих с пациентами с когнитивными расстройствами.\n"
         "Автор: [Линенко Андрей Валерьевич]\n"
-        "Версия прототипа: 0.4"
+        "Версия прототипа: 0.5 (с ИИ-ассистентом)"
     )
 
 # Начать симуляцию – показываем список случаев
@@ -72,10 +78,8 @@ async def start_sim(message: types.Message, state: FSMContext):
         print(f"  - {case['id']}: {case['title']}")
 
     try:
-        # Формируем клавиатуру с кнопками для каждого случая
         buttons = [[KeyboardButton(text=f"Случай {case['id']}: {case['title']}")] for case in all_cases]
         keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-
         await state.set_state(Simulator.choosing_case)
         await message.answer("Выберите клинический случай:", reply_markup=keyboard)
 
@@ -93,10 +97,8 @@ async def case_chosen(message: types.Message, state: FSMContext):
     start_time = time.time()
     print(f"🔵 Выбран случай: {message.text}")
 
-    # Мгновенная обратная связь: показываем "печатает..."
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
-    # Извлекаем ID случая из текста кнопки
     try:
         case_id = int(message.text.split(":")[0].split()[1])
     except (IndexError, ValueError):
@@ -177,6 +179,7 @@ async def handle_answer(message: types.Message, state: FSMContext):
         await state.clear()
         kb = [
             [KeyboardButton(text="Начать симуляцию")],
+            [KeyboardButton(text="Спросить ИИ-ассистента")],
             [KeyboardButton(text="О проекте")]
         ]
         keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
@@ -184,6 +187,42 @@ async def handle_answer(message: types.Message, state: FSMContext):
 
     end_time = time.time()
     print(f"⏱ Время обработки ответа на вопрос {idx+1}: {end_time - start_time:.3f} сек.")
+
+# Обработчик кнопки "Спросить ИИ-ассистента"
+@dp.message(lambda message: message.text == "Спросить ИИ-ассистента")
+async def start_ai_chat(message: types.Message, state: FSMContext):
+    if not ai_client.is_available():
+        await message.answer("Извините, ИИ-ассистент временно недоступен (нет API ключа).")
+        return
+
+    await state.set_state(Simulator.ai_chat)
+    system_prompt = """Ты — медицинский ассистент, помогающий врачам в диагностике 
+    когнитивных расстройств. Отвечай кратко, по делу, основываясь на современных 
+    клинических рекомендациях. Если вопрос не по медицине, вежливо возвращай к теме."""
+    
+    await state.update_data(system_prompt=system_prompt)
+    await message.answer(
+        "🧑‍⚕️ **Режим ИИ-ассистента**\n\n"
+        "Задайте любой вопрос по диагностике когнитивных нарушений, лечению деменций "
+        "или интерпретации симптомов. Для выхода отправьте /end",
+        parse_mode="Markdown"
+    )
+
+# Обработчик сообщений в режиме ИИ
+@dp.message(Simulator.ai_chat)
+async def handle_ai_chat(message: types.Message, state: FSMContext):
+    if message.text == "/end":
+        await state.clear()
+        await cmd_start(message, state)
+        return
+
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+
+    data = await state.get_data()
+    system_prompt = data.get('system_prompt')
+
+    response = await ai_client.get_response(message.text, system_prompt)
+    await message.answer(response)
 
 # Запуск бота
 async def main():
