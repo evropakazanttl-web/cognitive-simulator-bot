@@ -12,8 +12,13 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import logging
 
 # Для прокси
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp_socks import ProxyConnector
+try:
+    from aiogram.client.session.aiohttp import AiohttpSession
+    from aiohttp_socks import ProxyConnector
+    PROXY_SUPPORT = True
+except ImportError:
+    PROXY_SUPPORT = False
+    print("⚠️ Библиотека aiohttp-socks не установлена. Прокси не будут работать.")
 
 # Импортируем клинические случаи
 from cases import case_1, case_2, case_3, case_4
@@ -37,16 +42,6 @@ print("PROXY_URL =", os.getenv("PROXY_URL"))
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PROXY_URL = os.getenv("PROXY_URL")  # например, socks5://127.0.0.1:1080
-
-# Создаём сессию с прокси, если указан
-if PROXY_URL:
-    print(f"🔌 Используем прокси: {PROXY_URL}")
-    connector = ProxyConnector.from_url(PROXY_URL)
-    session = AiohttpSession(connector=connector)
-    bot = Bot(token=BOT_TOKEN, session=session)
-else:
-    print("⚠️ Прокси не задан, работаем напрямую (может не работать из РФ)")
-    bot = Bot(token=BOT_TOKEN)
 
 # Импортируем и инициализируем ИИ-клиент
 from ai_client import AIClient
@@ -144,7 +139,7 @@ async def callback_case_chosen(callback: CallbackQuery, state: FSMContext):
     await state.update_data(case=selected_case, question_index=0, score=0)
     await state.set_state(Simulator.in_question)
     print(f"Состояние после выбора: {await state.get_state()}")
-    await send_question(callback.message, state)
+    await send_question_new(callback.message, state)
 
 @dp.callback_query(Simulator.in_question, lambda c: c.data.startswith("answer_"))
 async def callback_answer(callback: CallbackQuery, state: FSMContext):
@@ -195,21 +190,6 @@ async def callback_answer(callback: CallbackQuery, state: FSMContext):
             reply_markup=main_menu_keyboard(),
             parse_mode="HTML"
         )
-
-async def send_question(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    case = data['case']
-    idx = data['question_index']
-    question = case['questions'][idx]
-    print(f"📤 send_question вызван для вопроса index={idx+1}")
-
-    await message.edit_text(
-        f"🧠 <b>{case['title']}</b>\n\n"
-        f"📋 <i>{case['description']}</i>\n\n"
-        f"❓ <b>Вопрос {idx+1}:</b> {question['text']}",
-        reply_markup=question_keyboard(question['options']),
-        parse_mode="HTML"
-    )
 
 async def send_question_new(message: types.Message, state: FSMContext):
     """Отправляет следующий вопрос новым сообщением (чтобы избежать конфликтов редактирования)"""
@@ -284,8 +264,33 @@ async def handle_ai_chat(message: types.Message, state: FSMContext):
     response = await ai_client.get_response(message.text, system_prompt)
     await message.answer(response, parse_mode="HTML")
 
+# ---------- Создание бота с поддержкой прокси (асинхронно) ----------
+async def create_bot():
+    """Создаёт экземпляр бота с учётом прокси (вызывается внутри main)"""
+    if PROXY_URL and PROXY_SUPPORT:
+        print(f"🔌 Используем прокси: {PROXY_URL}")
+        try:
+            connector = ProxyConnector.from_url(PROXY_URL)
+            session = AiohttpSession(connector=connector)
+            return Bot(token=BOT_TOKEN, session=session)
+        except Exception as e:
+            print(f"❌ Ошибка подключения прокси: {e}")
+            print("⚠️ Запускаем без прокси")
+            return Bot(token=BOT_TOKEN)
+    else:
+        if not PROXY_SUPPORT and PROXY_URL:
+            print("⚠️ Указан PROXY_URL, но библиотека aiohttp-socks не установлена. Установите: pip install aiohttp-socks")
+        else:
+            print("⚠️ Прокси не задан, работаем напрямую (может не работать из РФ)")
+        return Bot(token=BOT_TOKEN)
+
+# Глобальная переменная для бота (будет инициализирована в main)
+bot = None
+
 # ---------- Запуск бота ----------
 async def main():
+    global bot
+    bot = await create_bot()
     print("Бот запущен и готов к работе!")
     await dp.start_polling(bot)
 
