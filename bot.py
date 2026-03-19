@@ -11,10 +11,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 import logging
 
-# Для прокси
+# Для прокси – проверяем наличие библиотеки
 try:
     from aiogram.client.session.aiohttp import AiohttpSession
-    from aiohttp_socks import ProxyConnector
+    import aiohttp_socks  # просто проверяем, что установлено
     PROXY_SUPPORT = True
 except ImportError:
     PROXY_SUPPORT = False
@@ -270,15 +270,15 @@ async def create_bot():
     if PROXY_URL and PROXY_SUPPORT:
         print(f"🔌 Используем прокси: {PROXY_URL}")
         try:
-            connector = ProxyConnector.from_url(PROXY_URL)
-            session = AiohttpSession(connector=connector)
+            # В aiogram 3.x прокси задаётся через параметр proxy в AiohttpSession
+            session = AiohttpSession(proxy=PROXY_URL)
             return Bot(token=BOT_TOKEN, session=session)
         except Exception as e:
             print(f"❌ Ошибка подключения прокси: {e}")
             print("⚠️ Запускаем без прокси")
             return Bot(token=BOT_TOKEN)
     else:
-        if not PROXY_SUPPORT and PROXY_URL:
+        if PROXY_URL and not PROXY_SUPPORT:
             print("⚠️ Указан PROXY_URL, но библиотека aiohttp-socks не установлена. Установите: pip install aiohttp-socks")
         else:
             print("⚠️ Прокси не задан, работаем напрямую (может не работать из РФ)")
