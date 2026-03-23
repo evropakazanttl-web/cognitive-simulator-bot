@@ -147,10 +147,21 @@ async def callback_answer(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     answer_text = callback.data[7:]  # удаляем "answer_"
     data = await state.get_data()
-    case = data['case']
-    idx = data['question_index']
-    question = case['questions'][idx]
+    case = data.get('case')
+    idx = data.get('question_index', 0)
+    if case is None:
+        print("❌ Ошибка: case не найден в state")
+        await callback.message.answer("❌ Ошибка состояния. Попробуйте /start заново.")
+        await state.clear()
+        return
 
+    if idx >= len(case['questions']):
+        print(f"❌ Ошибка: индекс {idx} вне диапазона (всего {len(case['questions'])})")
+        await callback.message.answer("❌ Ошибка: вы уже прошли все вопросы. Начните заново.")
+        await state.clear()
+        return
+
+    question = case['questions'][idx]
     print(f"Текущий индекс: {idx}, всего вопросов: {len(case['questions'])}")
 
     if answer_text not in question['options']:
@@ -161,7 +172,7 @@ async def callback_answer(callback: CallbackQuery, state: FSMContext):
     is_correct = (selected_idx == question['correct'])
 
     if is_correct:
-        await state.update_data(score=data['score'] + 1)
+        await state.update_data(score=data.get('score', 0) + 1)
         feedback = f"✅ <b>Правильно!</b>\n\n{question['explanation']}"
     else:
         correct_answer = question['options'][question['correct']]
@@ -169,13 +180,18 @@ async def callback_answer(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(feedback, parse_mode="HTML")
 
+    # Переход к следующему вопросу
     if idx + 1 < len(case['questions']):
-        await state.update_data(question_index=idx + 1)
-        print(f"Переходим к вопросу {idx+2}")
+        new_idx = idx + 1
+        await state.update_data(question_index=new_idx)
+        # Проверяем, что индекс сохранился
+        check_data = await state.get_data()
+        print(f"Индекс обновлён на {check_data['question_index']}")
+        print(f"Переходим к вопросу {new_idx+1}")
         await send_question_new(callback.message, state)
     else:
         # Все вопросы завершены
-        score = data['score'] + (1 if is_correct else 0)
+        score = data.get('score', 0) + (1 if is_correct else 0)
         total = len(case['questions'])
         print("Симуляция завершена")
         await callback.message.answer(
@@ -192,20 +208,30 @@ async def callback_answer(callback: CallbackQuery, state: FSMContext):
         )
 
 async def send_question_new(message: types.Message, state: FSMContext):
-    """Отправляет следующий вопрос новым сообщением (чтобы избежать конфликтов редактирования)"""
-    data = await state.get_data()
-    case = data['case']
-    idx = data['question_index']
-    question = case['questions'][idx]
-    print(f"📤 send_question_new вызван для вопроса index={idx+1}")
-
-    await message.answer(
-        f"🧠 <b>{case['title']}</b>\n\n"
-        f"📋 <i>{case['description']}</i>\n\n"
-        f"❓ <b>Вопрос {idx+1}:</b> {question['text']}",
-        reply_markup=question_keyboard(question['options']),
-        parse_mode="HTML"
-    )
+    """Отправляет следующий вопрос новым сообщением (с обработкой ошибок)"""
+    try:
+        data = await state.get_data()
+        case = data.get('case')
+        if case is None:
+            print("❌ Ошибка в send_question_new: case не найден в state")
+            return
+        idx = data.get('question_index', 0)
+        if idx >= len(case['questions']):
+            print(f"❌ Ошибка в send_question_new: индекс {idx} вне диапазона ({len(case['questions'])})")
+            return
+        question = case['questions'][idx]
+        print(f"📤 send_question_new вызван для вопроса index={idx+1}")
+        await message.answer(
+            f"🧠 <b>{case['title']}</b>\n\n"
+            f"📋 <i>{case['description']}</i>\n\n"
+            f"❓ <b>Вопрос {idx+1}:</b> {question['text']}",
+            reply_markup=question_keyboard(question['options']),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"❌ Ошибка в send_question_new: {e}")
+        import traceback
+        traceback.print_exc()
 
 # ---------- Обработчики для ИИ-ассистента ----------
 @dp.callback_query(lambda c: c.data == "start_ai")

@@ -1,4 +1,3 @@
-# ai_client.py - Клиент для работы с OpenRouter API (с перебором моделей)
 import os
 import aiohttp
 import json
@@ -19,17 +18,12 @@ class AIClient:
         if not self.api_key:
             return "❌ API ключ не настроен. Добавьте OPENROUTER_API_KEY в .env"
         
-        # Список бесплатных моделей в порядке предпочтения (март 2026)
         models_to_try = [
-            "qwen/qwen3-coder-480b-a35b:free",
-            "stepfun/step-3.5-flash:free",
-            "arcee-ai/trinity-large-preview:free",
-            "nvidia/nemotron-3-super-120b:free",
-            "openrouter/hunter-alpha:free",
-            "z-ai/glm-4.5-air:free",
-            "openrouter/healer-alpha:free",
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "google/gemma-2-2b-it:free"
+            "google/gemma-2-9b-it:free",
+            "meta-llama/llama-3-8b-instruct:free",
+            "microsoft/phi-3-mini-128k-instruct:free",
+            "qwen/qwen2.5-7b-instruct:free",
+            "mistralai/mistral-7b-instruct:free"
         ]
         
         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -37,7 +31,6 @@ class AIClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -61,6 +54,4 @@ class AIClient:
                             print(f"⚠️ Модель {model} не сработала (статус {resp.status})")
             except Exception as e:
                 print(f"⚠️ Ошибка с моделью {model}: {e}")
-                continue
-        
         return "❌ К сожалению, ни одна из моделей сейчас не доступна. Попробуйте позже."
