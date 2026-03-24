@@ -14,7 +14,7 @@ import logging
 # Для прокси – проверяем наличие библиотеки
 try:
     from aiogram.client.session.aiohttp import AiohttpSession
-    import aiohttp_socks  # просто проверяем, что установлено
+    import aiohttp_socks
     PROXY_SUPPORT = True
 except ImportError:
     PROXY_SUPPORT = False
@@ -23,44 +23,35 @@ except ImportError:
 # Импортируем клинические случаи
 from cases import case_1, case_2, case_3, case_4
 
-# Список всех случаев и быстрый доступ по ID
 all_cases = [case_1, case_2, case_3, case_4]
 cases_by_id = {case['id']: case for case in all_cases}
 
-# Проверка типов (выполняется при запуске)
 print("Проверка типов случаев:")
 for i, case in enumerate(all_cases):
     print(f"  case_{i+1}: {type(case)}")
 
-# Загружаем переменные окружения из .env
 load_dotenv()
-
-# Отладочный вывод
 print("BOT_TOKEN =", os.getenv("BOT_TOKEN"))
 print("OPENROUTER_API_KEY =", os.getenv("OPENROUTER_API_KEY"))
 print("PROXY_URL =", os.getenv("PROXY_URL"))
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-PROXY_URL = os.getenv("PROXY_URL")  # например, socks5://127.0.0.1:1080
+PROXY_URL = os.getenv("PROXY_URL")
 
-# Импортируем и инициализируем ИИ-клиент
 from ai_client import AIClient
 ai_client = AIClient()
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# Состояния конечного автомата
 class Simulator(StatesGroup):
     choosing_case = State()
     in_question = State()
     showing_result = State()
     ai_chat = State()
 
-# ---------- Функции для создания клавиатур ----------
 def main_menu_keyboard():
     buttons = [
         [InlineKeyboardButton(text="🎲 Начать симуляцию", callback_data="start_sim")],
@@ -88,7 +79,6 @@ def ai_chat_keyboard():
     buttons = [[InlineKeyboardButton(text="🚪 Выйти из режима ИИ", callback_data="exit_ai")]]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# ---------- Команда /start ----------
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     print("🚀 /start вызван")
@@ -100,13 +90,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# ---------- Универсальный обработчик всех callback'ов (для отладки) ----------
-@dp.callback_query()
-async def debug_callback(callback: CallbackQuery):
-    print(f"🔔 Получен любой callback: {callback.data}")
-    await callback.answer("Тест (универсальный обработчик)")
-
-# ---------- Обработчики callback'ов ----------
 @dp.callback_query(lambda c: c.data == "about")
 async def callback_about(callback: CallbackQuery):
     print("ℹ️ about callback")
@@ -186,17 +169,13 @@ async def callback_answer(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(feedback, parse_mode="HTML")
 
-    # Переход к следующему вопросу
     if idx + 1 < len(case['questions']):
         new_idx = idx + 1
         await state.update_data(question_index=new_idx)
-        # Проверяем, что индекс сохранился
-        check_data = await state.get_data()
-        print(f"Индекс обновлён на {check_data['question_index']}")
+        print(f"Индекс обновлён на {new_idx}")
         print(f"Переходим к вопросу {new_idx+1}")
         await send_question_new(callback.message, state)
     else:
-        # Все вопросы завершены
         score = data.get('score', 0) + (1 if is_correct else 0)
         total = len(case['questions'])
         print("Симуляция завершена")
@@ -214,7 +193,6 @@ async def callback_answer(callback: CallbackQuery, state: FSMContext):
         )
 
 async def send_question_new(message: types.Message, state: FSMContext):
-    """Отправляет следующий вопрос новым сообщением (с обработкой ошибок)"""
     try:
         data = await state.get_data()
         case = data.get('case')
@@ -239,7 +217,6 @@ async def send_question_new(message: types.Message, state: FSMContext):
         import traceback
         traceback.print_exc()
 
-# ---------- Обработчики для ИИ-ассистента ----------
 @dp.callback_query(lambda c: c.data == "start_ai")
 async def callback_start_ai(callback: CallbackQuery, state: FSMContext):
     print("🤖 callback_start_ai вызван")
@@ -296,13 +273,10 @@ async def handle_ai_chat(message: types.Message, state: FSMContext):
     response = await ai_client.get_response(message.text, system_prompt)
     await message.answer(response, parse_mode="HTML")
 
-# ---------- Создание бота с поддержкой прокси (асинхронно) ----------
 async def create_bot():
-    """Создаёт экземпляр бота с учётом прокси (вызывается внутри main)"""
     if PROXY_URL and PROXY_SUPPORT:
         print(f"🔌 Используем прокси: {PROXY_URL}")
         try:
-            # В aiogram 3.x прокси задаётся через параметр proxy в AiohttpSession
             session = AiohttpSession(proxy=PROXY_URL)
             return Bot(token=BOT_TOKEN, session=session)
         except Exception as e:
@@ -316,10 +290,8 @@ async def create_bot():
             print("⚠️ Прокси не задан, работаем напрямую (может не работать из РФ)")
         return Bot(token=BOT_TOKEN)
 
-# Глобальная переменная для бота (будет инициализирована в main)
 bot = None
 
-# ---------- Запуск бота ----------
 async def main():
     global bot
     bot = await create_bot()
