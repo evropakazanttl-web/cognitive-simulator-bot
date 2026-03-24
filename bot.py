@@ -100,6 +100,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
+# ---------- Универсальный обработчик всех callback'ов (для отладки) ----------
+@dp.callback_query()
+async def debug_callback(callback: CallbackQuery):
+    print(f"🔔 Получен любой callback: {callback.data}")
+    await callback.answer("Тест (универсальный обработчик)")
+
 # ---------- Обработчики callback'ов ----------
 @dp.callback_query(lambda c: c.data == "about")
 async def callback_about(callback: CallbackQuery):
