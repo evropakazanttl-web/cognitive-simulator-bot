@@ -18,6 +18,7 @@ class AIClient:
         if not self.api_key:
             return "❌ API ключ не настроен. Добавьте OPENROUTER_API_KEY в .env"
         
+        # Актуальные бесплатные модели (март 2026)
         models_to_try = [
             "google/gemma-2-9b-it:free",
             "meta-llama/llama-3-8b-instruct:free",
